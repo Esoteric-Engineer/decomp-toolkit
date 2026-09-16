@@ -777,6 +777,15 @@ impl Tracker {
                         obj.symbols.replace(symbol_idx, new_symbol)?;
                     }
                     (symbol_idx, target.address as i64 - symbol_address as i64)
+                } else if target.section == SectionIndex::MAX {
+                    let symbol_idx = obj.symbols.add_direct(ObjSymbol {
+                        name: format!("lbl_{:08X}", target.address),
+                        address: target.address as u64,
+                        section: None,
+                        data_kind,
+                        ..Default::default()
+                    })?;
+                    (symbol_idx, 0)
                 } else {
                     // Create a new label
                     let name = if obj.module_id == 0 {

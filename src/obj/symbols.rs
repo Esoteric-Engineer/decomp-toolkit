@@ -336,6 +336,12 @@ impl ObjSymbols {
         let symbol_idx = self.symbols.len() as SymbolIndex;
         self.symbols_by_address.nested_push(in_symbol.address as u32, symbol_idx);
         if let Some(section_idx) = in_symbol.section {
+            ensure!(
+                section_idx != SectionIndex::MAX,
+                "Symbol '{}' @ {:#010X} has an invalid section index",
+                in_symbol.name,
+                in_symbol.address
+            );
             let section_idx = section_idx as usize;
             if section_idx >= self.symbols_by_section.len() {
                 self.symbols_by_section.resize_with(section_idx + 1, BTreeMap::new);
@@ -614,6 +620,31 @@ impl ObjSymbol {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_direct_rejects_sentinel_section_index() {
+        let mut symbols = ObjSymbols::new(ObjKind::Executable, vec![]);
+        let result = symbols.add_direct(ObjSymbol {
+            name: "lbl_8066FB50".to_string(),
+            address: 0x8066FB50,
+            section: Some(SectionIndex::MAX),
+            ..Default::default()
+        });
+        assert!(result.is_err(), "expected an error for the sentinel section index");
+
+        let absolute = symbols.add_direct(ObjSymbol {
+            name: "lbl_8066FB50".to_string(),
+            address: 0x8066FB50,
+            section: None,
+            ..Default::default()
+        });
+        assert!(absolute.is_ok(), "absolute symbol should be accepted");
     }
 }
 
