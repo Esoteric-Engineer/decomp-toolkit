@@ -972,6 +972,47 @@ fn load_analyze_dol(config: &ProjectConfig, object_base: &ObjectBase) -> Result<
     Ok(AnalyzeResult { obj, dep, symbols_cache, splits_cache })
 }
 
+/// Removes small-data relocations whose register disagrees with the `mwld`-derived register from the target section.
+fn bake_conflicting_sda_relocations(obj: &mut ObjInfo) {
+    let mut to_remove = Vec::new();
+    for (section_index, section) in obj.sections.iter() {
+        for (addr, reloc) in section.relocations.iter() {
+            if reloc.kind != ObjRelocKind::PpcEmbSda21 {
+                continue;
+            }
+            let Some(target_section) = obj.symbols[reloc.target_symbol].section else {
+                continue;
+            };
+            let target_name = &obj.sections[target_section].name;
+            let mwld_reg = match target_name.split(':').next().unwrap_or(target_name) {
+                ".sdata" | ".sbss" => 13,
+                ".sdata2" | ".sbss2" => 2,
+                _ => continue,
+            };
+            let Some(offset) = (addr as usize).checked_sub(section.address as usize) else {
+                continue;
+            };
+            let Some(end) = offset.checked_add(4) else {
+                continue;
+            };
+            let Some(bytes) = section.data.get(offset..end) else {
+                continue;
+            };
+            let ins = u32::from_be_bytes(bytes.try_into().unwrap());
+            let original_reg = ((ins >> 16) & 0x1F) as u8;
+            if original_reg != mwld_reg {
+                to_remove.push((section_index, addr));
+            }
+        }
+    }
+    if !to_remove.is_empty() {
+        debug!("Baking {} small-data relocation(s) (base register conflict)", to_remove.len());
+        for (section_index, addr) in to_remove {
+            obj.sections[section_index].relocations.remove(addr);
+        }
+    }
+}
+
 fn split_write_obj(
     module: &mut ModuleInfo,
     config: &ProjectConfig,
@@ -985,6 +1026,8 @@ fn split_write_obj(
 
     debug!("Applying relocations");
     tracker.apply(&mut module.obj, false)?;
+
+    bake_conflicting_sda_relocations(&mut module.obj);
 
     if !config.symbols_known && config.detect_objects {
         debug!("Detecting object boundaries");
@@ -1003,6 +1046,27 @@ fn split_write_obj(
         if module_id == 0 { config.common_start } else { None },
         config.fill_gaps,
     )?;
+
+    // Keep linker output section names unique. Suffixing duplicate names does not change the generated binary.
+    {
+        let mut assigned = Vec::new();
+        for (_, section) in module.obj.sections.iter_mut() {
+            if !assigned.contains(&section.name) {
+                assigned.push(section.name.clone());
+                continue;
+            }
+            let base = section.name.clone();
+            let mut n = 1u32;
+            let mut candidate = format!("{base}.{n}");
+            while assigned.contains(&candidate) {
+                n += 1;
+                candidate = format!("{base}.{n}");
+            }
+            debug!("Renaming duplicate section '{base}' to '{candidate}'");
+            assigned.push(candidate.clone());
+            section.name = candidate;
+        }
+    }
 
     if !no_update {
         debug!("Writing configuration");
@@ -2413,5 +2477,60 @@ mod test {
         assert!(!symbol_name_fuzzy_eq("symbol@1234", "symbol@5678"));
         assert!(!symbol_name_fuzzy_eq("symbol", "symbol_80123456_"));
         assert!(!symbol_name_fuzzy_eq("symbol_80123456_", "symbol"));
+    }
+
+    #[test]
+    fn bake_removes_only_register_conflicting_sda_relocations() {
+        fn section(name: &str, kind: ObjSectionKind, address: u64, data: Vec<u8>) -> crate::obj::ObjSection {
+            crate::obj::ObjSection {
+                name: name.to_string(),
+                kind,
+                address,
+                size: data.len().max(0x100) as u64,
+                data,
+                align: 0,
+                elf_index: 0,
+                relocations: Default::default(),
+                virtual_address: Some(address),
+                file_offset: 0,
+                section_known: true,
+                splits: Default::default(),
+            }
+        }
+        fn symbol(name: &str, address: u64, section: SectionIndex) -> ObjSymbol {
+            ObjSymbol { name: name.to_string(), address, section: Some(section), ..Default::default() }
+        }
+        fn sda21(target_symbol: SymbolIndex) -> ObjReloc {
+            ObjReloc { kind: ObjRelocKind::PpcEmbSda21, target_symbol, addend: 0, module: None }
+        }
+
+        let mut text = Vec::new();
+        text.extend_from_slice(&0x800D0000u32.to_be_bytes());
+        text.extend_from_slice(&0x800D0000u32.to_be_bytes());
+        text.extend_from_slice(&0x80020000u32.to_be_bytes());
+        let sections = vec![
+            section(".text", ObjSectionKind::Code, 0x80003000, text),
+            section(".sdata", ObjSectionKind::Data, 0x80100000, vec![0; 0x100]),
+            section(".sdata2", ObjSectionKind::ReadOnlyData, 0x80110000, vec![0; 0x100]),
+        ];
+        let symbols = vec![symbol("sd", 0x80100010, 1), symbol("sd2", 0x80110010, 2)];
+        let mut obj = ObjInfo::new(
+            crate::obj::ObjKind::Executable,
+            crate::obj::ObjArchitecture::PowerPc,
+            "test".to_string(),
+            symbols,
+            sections,
+        );
+        obj.sections[0].relocations.insert(0x80003000, sda21(0)).unwrap();
+        obj.sections[0].relocations.insert(0x80003004, sda21(1)).unwrap();
+        obj.sections[0].relocations.insert(0x80003008, sda21(1)).unwrap();
+
+        bake_conflicting_sda_relocations(&mut obj);
+
+        let relocs = &obj.sections[0].relocations;
+        assert_eq!(relocs.len(), 2);
+        assert!(relocs.at(0x80003000).is_some());
+        assert!(relocs.at(0x80003004).is_none());
+        assert!(relocs.at(0x80003008).is_some());
     }
 }

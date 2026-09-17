@@ -157,6 +157,10 @@ impl ObjRelocations {
         self.relocations.insert(address, reloc);
     }
 
+    pub fn remove(&mut self, address: u32) -> Option<ObjReloc> {
+        self.relocations.remove(&(address & !3))
+    }
+
     pub fn at(&self, address: u32) -> Option<&ObjReloc> { self.relocations.get(&address) }
 
     pub fn at_mut(&mut self, address: u32) -> Option<&mut ObjReloc> {
