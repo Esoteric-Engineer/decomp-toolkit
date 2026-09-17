@@ -17,7 +17,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::{
     analysis::cfa::SectionAddress,
     obj::{
-        ObjDataKind, ObjInfo, ObjKind, ObjSectionKind, ObjSplit, ObjSymbol, ObjSymbolFlagSet,
+        ObjDataKind, ObjInfo, ObjKind, ObjSection, ObjSectionKind, ObjSplit, ObjSymbol, ObjSymbolFlagSet,
         ObjSymbolFlags, ObjSymbolKind, ObjUnit, SectionIndex,
     },
     util::{
@@ -82,16 +82,19 @@ pub fn parse_symbol_line(line: &str, obj: &mut ObjInfo) -> Result<Option<ObjSymb
         let section_name = captures["section"].to_string();
         let section = if section_name == "ABS" {
             None
-        } else if let Some((section_index, _)) = obj.sections.by_name(&section_name)? {
-            Some(section_index)
-        } else if obj.kind == ObjKind::Executable {
-            let (section_index, section) = obj.sections.at_address_mut(addr)?;
-            if !section.section_known {
-                section.rename(section_name)?;
-            }
-            Some(section_index)
         } else {
-            bail!("Section {} not found", section_name)
+            match obj.sections.by_name(&section_name) {
+                Ok(Some((section_index, _))) => Some(section_index),
+                Ok(None) | Err(_) if obj.kind == ObjKind::Executable => {
+                    let (section_index, section) = obj.sections.at_address_mut(addr)?;
+                    if !section.section_known {
+                        section.rename(section_name)?;
+                    }
+                    Some(section_index)
+                }
+                Ok(None) => bail!("Section {} not found", section_name),
+                Err(e) => return Err(e),
+            }
         };
         // Normalize virtual addresses to section-relative for REL modules
         let addr = if obj.kind == ObjKind::Relocatable
@@ -971,5 +974,67 @@ impl serde::Serialize for SectionAddressRef {
         } else {
             serializer.serialize_str(&format!("{:#X}", self.address))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_section(name: &str, kind: ObjSectionKind, address: u64, size: u64) -> ObjSection {
+        ObjSection {
+            name: name.to_string(),
+            kind,
+            address,
+            size,
+            data: vec![0; size as usize],
+            align: 0,
+            elf_index: 0,
+            relocations: Default::default(),
+            virtual_address: Some(address),
+            file_offset: 0,
+            section_known: true,
+            splits: Default::default(),
+        }
+    }
+
+    #[test]
+    fn parse_symbol_line_disambiguates_duplicate_section_names() {
+        let sections = vec![
+            test_section(".rodata", ObjSectionKind::ReadOnlyData, 0x804825A0, 0x360),
+            test_section(".data", ObjSectionKind::Data, 0x80482900, 0x3D080),
+            test_section(".rodata", ObjSectionKind::ReadOnlyData, 0x804BF980, 0x4FDE0),
+        ];
+        let mut obj = ObjInfo::new(
+            ObjKind::Executable,
+            crate::obj::ObjArchitecture::PowerPc,
+            "test".to_string(),
+            vec![],
+            sections,
+        );
+
+        let first = parse_symbol_line(
+            "lbl_804825B0 = .rodata:0x804825B0; // type:object",
+            &mut obj,
+        )
+        .unwrap()
+        .expect("expected a symbol");
+        assert_eq!(first.section, Some(0));
+
+        let second = parse_symbol_line(
+            "lbl_804BF990 = .rodata:0x804BF990; // type:object",
+            &mut obj,
+        )
+        .unwrap()
+        .expect("expected a symbol");
+        assert_eq!(second.section, Some(2));
+
+        let data = parse_symbol_line(
+            "lbl_80482910 = .data:0x80482910; // type:object",
+            &mut obj,
+        )
+        .unwrap()
+        .expect("expected a symbol");
+        assert_eq!(data.section, Some(1));
     }
 }
