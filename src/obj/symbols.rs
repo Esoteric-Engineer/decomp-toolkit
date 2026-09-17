@@ -623,31 +623,6 @@ impl ObjSymbol {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn add_direct_rejects_sentinel_section_index() {
-        let mut symbols = ObjSymbols::new(ObjKind::Executable, vec![]);
-        let result = symbols.add_direct(ObjSymbol {
-            name: "lbl_8066FB50".to_string(),
-            address: 0x8066FB50,
-            section: Some(SectionIndex::MAX),
-            ..Default::default()
-        });
-        assert!(result.is_err(), "expected an error for the sentinel section index");
-
-        let absolute = symbols.add_direct(ObjSymbol {
-            name: "lbl_8066FB50".to_string(),
-            address: 0x8066FB50,
-            section: None,
-            ..Default::default()
-        });
-        assert!(absolute.is_ok(), "absolute symbol should be accepted");
-    }
-}
-
 pub fn best_match_for_reloc(
     mut symbols: Vec<(SymbolIndex, &ObjSymbol)>,
     reloc_kind: ObjRelocKind,
@@ -694,4 +669,29 @@ pub fn best_match_for_reloc(
         -rank
     });
     symbols.into_iter().next()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_direct_rejects_sentinel_section_index() {
+        let mut symbols = ObjSymbols::new(ObjKind::Executable, vec![]);
+        let result = symbols.add_direct(ObjSymbol {
+            name: "lbl_8066FB50".to_string(),
+            address: 0x8066FB50,
+            section: Some(SectionIndex::MAX),
+            ..Default::default()
+        });
+        assert!(result.is_err(), "expected an error for the sentinel section index");
+
+        let absolute = symbols.add_direct(ObjSymbol {
+            name: "lbl_8066FB50".to_string(),
+            address: 0x8066FB50,
+            section: None,
+            ..Default::default()
+        });
+        assert!(absolute.is_ok(), "absolute symbol should be accepted");
+    }
 }
