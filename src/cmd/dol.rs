@@ -2481,7 +2481,12 @@ mod test {
 
     #[test]
     fn bake_removes_only_register_conflicting_sda_relocations() {
-        fn section(name: &str, kind: ObjSectionKind, address: u64, data: Vec<u8>) -> crate::obj::ObjSection {
+        fn section(
+            name: &str,
+            kind: ObjSectionKind,
+            address: u64,
+            data: Vec<u8>,
+        ) -> crate::obj::ObjSection {
             crate::obj::ObjSection {
                 name: name.to_string(),
                 kind,
@@ -2498,7 +2503,12 @@ mod test {
             }
         }
         fn symbol(name: &str, address: u64, section: SectionIndex) -> ObjSymbol {
-            ObjSymbol { name: name.to_string(), address, section: Some(section), ..Default::default() }
+            ObjSymbol {
+                name: name.to_string(),
+                address,
+                section: Some(section),
+                ..Default::default()
+            }
         }
         fn sda21(target_symbol: SymbolIndex) -> ObjReloc {
             ObjReloc { kind: ObjRelocKind::PpcEmbSda21, target_symbol, addend: 0, module: None }

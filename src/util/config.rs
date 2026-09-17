@@ -17,7 +17,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::{
     analysis::cfa::SectionAddress,
     obj::{
-        ObjDataKind, ObjInfo, ObjKind, ObjSection, ObjSectionKind, ObjSplit, ObjSymbol, ObjSymbolFlagSet,
+        ObjDataKind, ObjInfo, ObjKind, ObjSectionKind, ObjSplit, ObjSymbol, ObjSymbolFlagSet,
         ObjSymbolFlags, ObjSymbolKind, ObjUnit, SectionIndex,
     },
     util::{
@@ -980,6 +980,7 @@ impl serde::Serialize for SectionAddressRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::obj::ObjSection;
 
     fn test_section(name: &str, kind: ObjSectionKind, address: u64, size: u64) -> ObjSection {
         ObjSection {
@@ -1013,28 +1014,21 @@ mod tests {
             sections,
         );
 
-        let first = parse_symbol_line(
-            "lbl_804825B0 = .rodata:0x804825B0; // type:object",
-            &mut obj,
-        )
-        .unwrap()
-        .expect("expected a symbol");
+        let first =
+            parse_symbol_line("lbl_804825B0 = .rodata:0x804825B0; // type:object", &mut obj)
+                .unwrap()
+                .expect("expected a symbol");
         assert_eq!(first.section, Some(0));
 
-        let second = parse_symbol_line(
-            "lbl_804BF990 = .rodata:0x804BF990; // type:object",
-            &mut obj,
-        )
-        .unwrap()
-        .expect("expected a symbol");
+        let second =
+            parse_symbol_line("lbl_804BF990 = .rodata:0x804BF990; // type:object", &mut obj)
+                .unwrap()
+                .expect("expected a symbol");
         assert_eq!(second.section, Some(2));
 
-        let data = parse_symbol_line(
-            "lbl_80482910 = .data:0x80482910; // type:object",
-            &mut obj,
-        )
-        .unwrap()
-        .expect("expected a symbol");
+        let data = parse_symbol_line("lbl_80482910 = .data:0x80482910; // type:object", &mut obj)
+            .unwrap()
+            .expect("expected a symbol");
         assert_eq!(data.section, Some(1));
     }
 }
