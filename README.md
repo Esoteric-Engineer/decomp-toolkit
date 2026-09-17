@@ -1,7 +1,13 @@
-# decomp-toolkit [![Build Status]][actions]
+# mnroi-decomp-toolkit [![Build Status]][actions]
 
-[Build Status]: https://github.com/encounter/decomp-toolkit/actions/workflows/build.yml/badge.svg
-[actions]: https://github.com/encounter/decomp-toolkit/actions
+[Build Status]: https://github.com/Esoteric-Engineer/mnroi-decomp-toolkit/actions/workflows/build.yml/badge.svg
+[actions]: https://github.com/Esoteric-Engineer/mnroi-decomp-toolkit/actions
+
+Forked from https://github.com/encounter/decomp-toolkit to address some issues that pertain to Marvel Nemesis.<br />
+May merge back into original project at some point if this actually proves useful for more games than just Nemesis.
+
+Everything below this line is the original project's README:
+---------------
 
 Yet another GameCube/Wii decompilation toolkit.
 
