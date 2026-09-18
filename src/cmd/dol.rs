@@ -59,6 +59,7 @@ use crate::{
         path::{check_path_buf, native_path},
         rel::{process_rel, process_rel_header, update_rel_section_alignment},
         rso::{DOL_SECTION_ABS, DOL_SECTION_ETI, DOL_SECTION_NAMES, process_rso},
+        sda_bake::SdaBakeData,
         split::{is_linker_generated_object, split_obj, update_splits},
     },
     vfs::{ArchiveKind, FileFormat, Vfs, VfsFile, detect, open_file, open_file_with_fs, open_fs},
@@ -241,6 +242,11 @@ pub struct ProjectConfig {
     /// will be used from the disc image directly without extraction.
     #[serde(default = "bool_true", skip_serializing_if = "is_true")]
     pub extract_objects: bool,
+    /// The original binary addresses `.sdata2`/`.sbss2` through `r13` (`_SDA_BASE_`),
+    /// e.g. games linked with SN Systems' `ngcld`. Bakes those accesses in split objects,
+    /// and writes `sda_bake.json` for `dtk elf bake-sda` to do the same for compiled objects.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub sda2_via_r13: bool,
 }
 
 impl Default for ProjectConfig {
@@ -262,6 +268,7 @@ impl Default for ProjectConfig {
             globalize_symbols: true,
             object_base: None,
             extract_objects: true,
+            sda2_via_r13: false,
         }
     }
 }
@@ -1027,7 +1034,9 @@ fn split_write_obj(
     debug!("Applying relocations");
     tracker.apply(&mut module.obj, false)?;
 
-    bake_conflicting_sda_relocations(&mut module.obj);
+    if config.sda2_via_r13 {
+        bake_conflicting_sda_relocations(&mut module.obj);
+    }
 
     if !config.symbols_known && config.detect_objects {
         debug!("Detecting object boundaries");
@@ -1065,6 +1074,17 @@ fn split_write_obj(
             debug!("Renaming duplicate section '{base}' to '{candidate}'");
             assigned.push(candidate.clone());
             section.name = candidate;
+        }
+    }
+
+    if module_id == 0 {
+        let bake_path = out_dir.join("sda_bake.json");
+        if config.sda2_via_r13 {
+            let bake =
+                SdaBakeData::from_obj(&module.obj).context("Collecting small-data bake data")?;
+            write_if_changed(&bake_path, &serde_json::to_vec_pretty(&bake)?)?;
+        } else if fs::metadata(&bake_path).is_ok() {
+            fs::remove_file(&bake_path)?;
         }
     }
 

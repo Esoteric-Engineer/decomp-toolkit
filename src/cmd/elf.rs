@@ -26,6 +26,7 @@ use crate::{
         file::{buf_writer, process_rsp},
         path::native_path,
         reader::{Endian, FromReader},
+        sda_bake::{SdaBakeData, bake_object},
         signatures::{FunctionSignature, compare_signature, generate_signature},
         split::split_obj,
     },
@@ -45,6 +46,7 @@ enum SubCommand {
     Config(ConfigArgs),
     Disasm(DisasmArgs),
     Fixup(FixupArgs),
+    BakeSda(BakeSdaArgs),
     Signatures(SignaturesArgs),
     Info(InfoArgs),
 }
@@ -65,6 +67,25 @@ pub struct DisasmArgs {
 /// Fixes issues with GNU assembler built object files.
 #[argp(subcommand, name = "fixup")]
 pub struct FixupArgs {
+    #[argp(positional, from_str_fn(native_path))]
+    /// input file
+    in_file: Utf8NativePathBuf,
+    #[argp(positional, from_str_fn(native_path))]
+    /// output file
+    out_file: Utf8NativePathBuf,
+}
+
+#[derive(FromArgs, PartialEq, Eq, Debug)]
+/// Bakes `.sdata2`/`.sbss2` small-data relocations as fixed `r13`-relative accesses.
+/// Requires `sda2_via_r13: true` in the project config.
+#[argp(subcommand, name = "bake-sda")]
+pub struct BakeSdaArgs {
+    #[argp(positional, from_str_fn(native_path))]
+    /// sda_bake.json written by `dol split`
+    bake_file: Utf8NativePathBuf,
+    #[argp(positional)]
+    /// unit name, as in splits.txt
+    unit: String,
     #[argp(positional, from_str_fn(native_path))]
     /// input file
     in_file: Utf8NativePathBuf,
@@ -114,6 +135,7 @@ pub fn run(args: Args) -> Result<()> {
         SubCommand::Config(c_args) => config(c_args),
         SubCommand::Disasm(c_args) => disasm(c_args),
         SubCommand::Fixup(c_args) => fixup(c_args),
+        SubCommand::BakeSda(c_args) => bake_sda(c_args),
         SubCommand::Signatures(c_args) => signatures(c_args),
         SubCommand::Info(c_args) => info(c_args),
     }
@@ -188,6 +210,22 @@ const ASM_SUFFIX: &str = " (asm)";
 //     fs::write(&args.out_file, &out).context("Failed to create output file")?;
 //     Ok(())
 // }
+
+fn bake_sda(args: BakeSdaArgs) -> Result<()> {
+    let bake: SdaBakeData = serde_json::from_slice(
+        &fs::read(&args.bake_file)
+            .with_context(|| format!("Failed to open bake file: '{}'", args.bake_file))?,
+    )
+    .with_context(|| format!("Failed to parse bake file: '{}'", args.bake_file))?;
+    let mut data = fs::read(&args.in_file)
+        .with_context(|| format!("Failed to open input file: '{}'", args.in_file))?;
+    let baked = bake_object(&mut data, &bake, &args.unit)
+        .with_context(|| format!("Failed to bake '{}' (unit '{}')", args.in_file, args.unit))?;
+    log::debug!("Baked {baked} small-data relocation(s) in '{}'", args.in_file);
+    fs::write(&args.out_file, data)
+        .with_context(|| format!("Failed to write output file: '{}'", args.out_file))?;
+    Ok(())
+}
 
 fn fixup(args: FixupArgs) -> Result<()> {
     let in_buf = fs::read(&args.in_file)

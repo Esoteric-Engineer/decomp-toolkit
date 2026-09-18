@@ -23,6 +23,7 @@ pub mod read;
 pub mod reader;
 pub mod rel;
 pub mod rso;
+pub mod sda_bake;
 pub mod signatures;
 pub mod split;
 pub mod take_seek;
